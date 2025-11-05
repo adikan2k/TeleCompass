@@ -26,6 +26,13 @@ interface SearchResult {
   relevanceScore: number;
 }
 
+const exampleQueries = [
+  "Does Florida allow audio-only telehealth visits?",
+  "What are California consent requirements for telehealth?",
+  "Which states reimburse for remote patient monitoring?",
+  "What modifiers are required for Medicaid telehealth billing?",
+];
+
 export default function PolicyFinder() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -34,10 +41,11 @@ export default function PolicyFinder() {
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
   const [showDialog, setShowDialog] = useState(false);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim()) return;
+  const performSearch = async (searchText: string) => {
+    const trimmed = searchText.trim();
+    if (!trimmed) return;
 
+    setQuery(trimmed);
     setLoading(true);
     setError("");
 
@@ -45,7 +53,7 @@ export default function PolicyFinder() {
       const response = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, topK: 10 }),
+        body: JSON.stringify({ query: trimmed, topK: 10 }),
       });
 
       const data = await response.json();
@@ -60,6 +68,11 @@ export default function PolicyFinder() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await performSearch(query);
   };
 
   return (
@@ -86,6 +99,24 @@ export default function PolicyFinder() {
               {loading ? "Searching..." : "Search"}
             </Button>
           </form>
+          <div className="mt-3 flex flex-wrap gap-2 text-sm text-muted-foreground">
+            <span className="mr-1">Try:</span>
+            {exampleQueries.map((example) => (
+              <Button
+                key={example}
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-auto px-3 py-2 text-left"
+                disabled={loading}
+                onClick={() => {
+                  void performSearch(example);
+                }}
+              >
+                {example}
+              </Button>
+            ))}
+          </div>
         </CardContent>
       </Card>
 

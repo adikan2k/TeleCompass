@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { GitCompare, Check, X, AlertCircle, Loader2, Download } from "lucide-react";
-import { utils, writeFileXLSX } from "xlsx";
+import writeXlsxFile from "write-excel-file";
 
 interface StateData {
   id: string;
@@ -200,22 +200,28 @@ export default function PolicyComparator() {
   const handleExportExcel = () => {
     if (exportRows.length === 0) return;
 
-    const worksheetData = [
-      ["Category", "Field", "State", "Value", "Confidence (%)", "Page"],
-      ...exportRows.map((row) => [
-        row.category,
-        row.field,
-        row.state,
-        row.value,
-        row.confidence,
-        row.page ?? "",
-      ]),
+    const headerRow = [
+      { value: "Category", fontWeight: "bold" },
+      { value: "Field", fontWeight: "bold" },
+      { value: "State", fontWeight: "bold" },
+      { value: "Value", fontWeight: "bold" },
+      { value: "Confidence (%)", fontWeight: "bold" },
+      { value: "Page", fontWeight: "bold" },
     ];
 
-    const worksheet = utils.aoa_to_sheet(worksheetData);
-    const workbook = utils.book_new();
-    utils.book_append_sheet(workbook, worksheet, "Comparison");
-    writeFileXLSX(workbook, `telecompass-comparison-${selectedStates.join("-")}.xlsx`);
+    const dataRows = exportRows.map((row) => [
+      { value: row.category },
+      { value: row.field },
+      { value: row.state },
+      { value: row.value },
+      { value: row.confidence },
+      { value: row.page ?? "" },
+    ]);
+
+    void writeXlsxFile([headerRow, ...dataRows], {
+      fileName: `telecompass-comparison-${selectedStates.join("-")}.xlsx`,
+      sheet: "Comparison",
+    });
   };
 
   if (loadingStates) {

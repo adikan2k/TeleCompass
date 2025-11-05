@@ -7,6 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MessageSquare, Brain, Quote, HelpCircle, CheckCircle } from "lucide-react";
 
+const exampleQuestions = [
+  "Can providers prescribe controlled substances via telehealth in Texas?",
+  "What consent is required before telehealth visits in California?",
+  "Does Florida allow audio-only telehealth for Medicaid?",
+  "Are remote patient monitoring devices reimbursed in New York?",
+];
+
 interface Citation {
   content: string;
   pageNumber: number;
@@ -32,9 +39,8 @@ export default function QAInterface() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmedQuestion = question.trim();
+  const askQuestion = async (prompt: string) => {
+    const trimmedQuestion = prompt.trim();
     if (!trimmedQuestion) return;
 
     setLoading(true);
@@ -76,6 +82,11 @@ export default function QAInterface() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await askQuestion(question);
   };
 
   const getConfidenceColor = (confidence: number) => {
@@ -125,6 +136,25 @@ export default function QAInterface() {
               {loading ? "Thinking..." : "Ask"}
             </Button>
           </form>
+          <div className="mt-3 flex flex-wrap gap-2 text-sm text-muted-foreground">
+            <span className="mr-1">Try:</span>
+            {exampleQuestions.map((example) => (
+              <Button
+                key={example}
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-auto px-3 py-2 text-left"
+                disabled={loading}
+                onClick={() => {
+                  setQuestion(example);
+                  void askQuestion(example);
+                }}
+              >
+                {example}
+              </Button>
+            ))}
+          </div>
           {hasConversation && (
             <div className="mt-2 flex justify-end">
               <Button
