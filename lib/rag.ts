@@ -1,5 +1,6 @@
-import { generateEmbedding, generateChatCompletion, cosineSimilarity } from "./openai";
+import { generateEmbedding, generateChatCompletion } from "./openai";
 import { prisma } from "./db";
+import { queryVectors, PineconeMetadata } from "./pinecone";
 
 export interface SearchResult {
   chunkId: string;
@@ -40,45 +41,28 @@ export async function hybridSearch(
     // Generate query embedding
     const queryEmbedding = await generateEmbedding(query);
     
-    // Get all chunks (with optional state filter)
-    const chunks = await prisma.policyChunk.findMany({
-      where: stateFilter
-        ? {
-            policy: {
-              state: {
-                name: { in: stateFilter },
-              },
-            },
-          }
-        : undefined,
-      include: {
-        policy: {
-          include: {
-            state: true,
-          },
-        },
-      },
-    });
+    // Build filter for Pinecone if state filter is provided
+    const filter = stateFilter ? { stateName: { $in: stateFilter } } : undefined;
     
-    // Calculate similarities
-    const results: SearchResult[] = chunks
-      .map((chunk) => {
-        if (!chunk.embedding) return null;
-        
-        const embedding = chunk.embedding as number[];
-        const similarity = cosineSimilarity(queryEmbedding, embedding);
-        
+    // Query Pinecone for similar vectors
+    const pineconeResults = await queryVectors(queryEmbedding, topK * 2, filter); // Get more results for filtering
+    
+    // Convert Pinecone results to our SearchResult format
+    const results: SearchResult[] = pineconeResults
+      .filter(match => match.score !== undefined && match.score >= SIMILARITY_THRESHOLD)
+      .map(match => {
+        const metadata = (match.metadata ?? {}) as Partial<PineconeMetadata>;
+
         return {
-          chunkId: chunk.id,
-          content: chunk.content,
-          pageNumber: chunk.pageNumber,
-          similarity,
-          policyId: chunk.policyId,
-          stateName: chunk.policy.state.name,
-          policyTitle: chunk.policy.title,
-        };
+          chunkId: String(match.id),
+          content: typeof metadata.content === "string" ? metadata.content : String(metadata.content ?? ""),
+          pageNumber: typeof metadata.pageNumber === "number" ? metadata.pageNumber : Number(metadata.pageNumber ?? 1),
+          similarity: match.score ?? 0,
+          policyId: typeof metadata.policyId === "string" ? metadata.policyId : String(metadata.policyId ?? ""),
+          stateName: typeof metadata.stateName === "string" ? metadata.stateName : "Unknown",
+          policyTitle: typeof metadata.policyTitle === "string" ? metadata.policyTitle : "Unknown Policy",
+        } satisfies SearchResult;
       })
-      .filter((result): result is SearchResult => result !== null && result.similarity >= SIMILARITY_THRESHOLD)
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, topK);
     
@@ -95,7 +79,7 @@ export async function ragQuery(
   history: ConversationHistoryMessage[] = []
 ): Promise<RAGResponse> {
   try {
-    // Search for relevant chunks
+    // Search for relevant chunks using Pinecone
     const searchResults = await hybridSearch(query, stateFilter);
     
     if (searchResults.length === 0) {
@@ -111,12 +95,28 @@ export async function ragQuery(
       };
     }
     
-    // Build context from top results
+    // Get full content from PostgreSQL for the top results
+    const chunkIds = searchResults.map(r => r.chunkId);
+    const fullChunks = await prisma.policyChunk.findMany({
+      where: {
+        id: { in: chunkIds }
+      },
+      include: {
+        policy: {
+          include: {
+            state: true,
+          },
+        },
+      },
+    });
+    
+    // Build context from full content
     const context = searchResults
-      .map(
-        (result, idx) =>
-          `[${idx + 1}] From ${result.stateName} (Page ${result.pageNumber}):\n${result.content}`
-      )
+      .map((result, idx) => {
+        const fullChunk = fullChunks.find(c => c.id === result.chunkId);
+        const content = fullChunk?.content || result.content;
+        return `[${idx + 1}] From ${result.stateName} (Page ${result.pageNumber}):\n${content}`;
+      })
       .join("\n\n");
     
     // Generate answer using Ollama
@@ -161,12 +161,15 @@ Provide a clear, cited answer. Use [1], [2], etc. to reference the context sourc
     return {
       answer,
       confidence,
-      citations: searchResults.map((result) => ({
-        content: result.content,
-        pageNumber: result.pageNumber,
-        stateName: result.stateName,
-        policyTitle: result.policyTitle,
-      })),
+      citations: searchResults.map((result) => {
+        const fullChunk = fullChunks.find(c => c.id === result.chunkId);
+        return {
+          content: fullChunk?.content || result.content,
+          pageNumber: result.pageNumber,
+          stateName: result.stateName,
+          policyTitle: result.policyTitle,
+        };
+      }),
     };
   } catch (error) {
     console.error("Error in RAG query:", error);

@@ -51,8 +51,7 @@ model PolicyChunk {
   pageNumber  Int
   chunkIndex  Int
   
-  // Vector embedding (stored as JSON array)
-  embedding   Json?
+  // Note: Embeddings are now stored in Pinecone, not PostgreSQL
   
   createdAt   DateTime @default(now())
   

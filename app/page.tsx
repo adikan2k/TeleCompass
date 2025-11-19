@@ -298,7 +298,7 @@ export default function TeleCompassHome() {
             TeleCompass © 2024 - AI-powered telehealth policy analysis
           </p>
           <p className="mt-2">
-            Designed by Aditya Kanbargi & Sanjana Kadambe Muralidhar. Referenced source:{" "}
+            All rights reserved. Referenced source:{" "}
             <a
               href="https://www.cchpca.org/"
               target="_blank"

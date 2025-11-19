@@ -1,5 +1,7 @@
 import pdf from "pdf-parse";
 import { generateEmbeddings } from "./openai";
+import { upsertVectors, deletePolicyVectors, PineconeMetadata } from "./pinecone";
+import { prisma } from "./db";
 
 export interface PDFChunk {
   content: string;
@@ -54,14 +56,83 @@ function createChunks(text: string, numPages: number): PDFChunk[] {
   return chunks;
 }
 
-export async function embedChunks(chunks: PDFChunk[]): Promise<Array<PDFChunk & { embedding: number[] }>> {
-  const texts = chunks.map(chunk => chunk.content);
-  const embeddings = await generateEmbeddings(texts);
-  
-  return chunks.map((chunk, i) => ({
-    ...chunk,
-    embedding: embeddings[i],
-  }));
+export async function embedAndStoreChunks(
+  chunks: PDFChunk[],
+  policyId: string,
+  stateId: string,
+  stateName: string,
+  policyTitle: string
+): Promise<void> {
+  try {
+    console.log(`Generating embeddings for ${chunks.length} chunks...`);
+    
+    // Generate embeddings for all chunks
+    const texts = chunks.map(chunk => chunk.content);
+    const embeddings = await generateEmbeddings(texts);
+    
+    // Prepare vectors for Pinecone
+    const vectors = chunks.map((chunk, i) => ({
+      id: `${policyId}-chunk-${chunk.chunkIndex}`,
+      values: embeddings[i],
+      metadata: {
+        policyId,
+        stateId,
+        stateName,
+        policyTitle,
+        pageNumber: chunk.pageNumber,
+        chunkIndex: chunk.chunkIndex,
+        content: chunk.content.slice(0, 500), // Store first 500 chars for preview
+      } as PineconeMetadata,
+    }));
+    
+    // Upsert vectors to Pinecone
+    console.log(`Storing ${vectors.length} vectors in Pinecone...`);
+    await upsertVectors(vectors);
+    
+    console.log(`Successfully stored embeddings for policy ${policyId} in Pinecone`);
+  } catch (error) {
+    console.error("Error embedding and storing chunks:", error);
+    throw new Error("Failed to embed and store chunks");
+  }
+}
+
+// Delete all embeddings for a policy from Pinecone
+export async function deletePolicyEmbeddings(policyId: string): Promise<void> {
+  try {
+    await deletePolicyVectors(policyId);
+    console.log(`Successfully deleted embeddings for policy ${policyId} from Pinecone`);
+  } catch (error) {
+    console.error("Error deleting policy embeddings:", error);
+    throw new Error("Failed to delete policy embeddings");
+  }
+}
+
+// Process and store a complete PDF with embeddings
+export async function processAndStorePDF(
+  buffer: Buffer,
+  policyId: string,
+  stateId: string,
+  stateName: string,
+  policyTitle: string
+): Promise<ProcessedPDF> {
+  try {
+    // Process PDF into chunks
+    const processedPDF = await processPDF(buffer);
+    
+    // Generate embeddings and store in Pinecone
+    await embedAndStoreChunks(
+      processedPDF.chunks,
+      policyId,
+      stateId,
+      stateName,
+      policyTitle
+    );
+    
+    return processedPDF;
+  } catch (error) {
+    console.error("Error processing and storing PDF:", error);
+    throw new Error("Failed to process and store PDF");
+  }
 }
 
 const STATE_ABBREVIATIONS: Record<string, string> = {

@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { prisma } from "./db";
-import { processPDF, embedChunks } from "./pdf-processor";
+import { processAndStorePDF, deletePolicyEmbeddings } from "./pdf-processor";
 import { extractPolicyFacts } from "./rag";
 
 interface IngestionJob {
@@ -40,24 +40,37 @@ async function processQueue() {
 
     try {
       console.log(`🔄 Processing policy ${job.policyId}`);
+      
+      // Get policy details for Pinecone metadata
+      const policy = await prisma.policy.findUnique({
+        where: { id: job.policyId },
+        include: { state: true }
+      });
+      
+      if (!policy) {
+        throw new Error(`Policy ${job.policyId} not found`);
+      }
+
       const buffer = await resolveBuffer(job);
 
-      console.log(`📄 Extracting text...`);
-      const processed = await processPDF(buffer);
-      console.log(`✅ ${processed.chunks.length} chunks extracted`);
+      console.log(`📄 Extracting text and generating embeddings...`);
+      const processed = await processAndStorePDF(
+        buffer,
+        job.policyId,
+        policy.stateId,
+        policy.state.name,
+        policy.title
+      );
+      console.log(`✅ ${processed.chunks.length} chunks processed and stored in Pinecone`);
 
-      console.log(`🧠 Generating embeddings...`);
-      const chunksWithEmbeddings = await embedChunks(processed.chunks);
-      console.log(`✅ ${chunksWithEmbeddings.length} embeddings generated`);
-
-      console.log(`💾 Writing chunks to database...`);
+      console.log(`💾 Writing chunks to PostgreSQL (without embeddings)...`);
       await prisma.policyChunk.createMany({
-        data: chunksWithEmbeddings.map((chunk) => ({
+        data: processed.chunks.map((chunk) => ({
           policyId: job.policyId,
           content: chunk.content,
           pageNumber: chunk.pageNumber,
           chunkIndex: chunk.chunkIndex,
-          embedding: chunk.embedding,
+          // Note: embedding is now stored in Pinecone, not PostgreSQL
         })),
       });
 
@@ -104,4 +117,25 @@ async function resolveBuffer(job: IngestionJob): Promise<Buffer> {
   }
 
   throw new Error("No buffer or file path provided for ingestion job");
+}
+
+// Delete policy and its embeddings from both databases
+export async function deletePolicy(policyId: string): Promise<void> {
+  try {
+    console.log(`🗑️ Deleting policy ${policyId} from PostgreSQL...`);
+    
+    // Delete from PostgreSQL
+    await prisma.policy.delete({
+      where: { id: policyId }
+    });
+    
+    // Delete embeddings from Pinecone
+    console.log(`🗑️ Deleting embeddings from Pinecone...`);
+    await deletePolicyEmbeddings(policyId);
+    
+    console.log(`✅ Policy ${policyId} deleted successfully`);
+  } catch (error) {
+    console.error(`❌ Failed to delete policy ${policyId}:`, error);
+    throw error;
+  }
 }

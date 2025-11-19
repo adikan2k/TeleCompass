@@ -53,9 +53,10 @@ TeleCompass is a comprehensive SaaS application that ingests state telehealth po
 ## Developer Guide
 
 ### 1. Prerequisites
-- Node.js 18+ 
+- Node.js 18+
 - PostgreSQL database
 - Ollama installed locally
+- Pinecone account (free Starter plan works with Serverless GCP regions)
 
 ### 2. Installation
 ```bash
@@ -69,12 +70,16 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env` with your configuration:
+Edit `.env` with your configuration (see `.env.example` for all options):
 ```env
 DATABASE_URL="postgresql://user:password@localhost:5432/telecompass"
 OLLAMA_HOST="http://localhost:11434"
 OLLAMA_EMBED_MODEL="nomic-embed-text:latest"
 OLLAMA_CHAT_MODEL="mistral:7b-instruct-q4_K_M"
+PINECONE_API_KEY="pcsk_your-key"
+PINECONE_INDEX_NAME="telecompass"
+PINECONE_CLOUD="gcp"           # or aws/azure depending on your plan
+PINECONE_REGION="us-central1"  # use a region supported by your Pinecone project
 ALLOW_INGEST="false"
 ALLOW_UPLOAD="false"
 NEXT_PUBLIC_ENABLE_UPLOAD="false"
@@ -92,7 +97,15 @@ npx prisma generate
 ollama serve  # Start Ollama server
 ```
 
-### 6. Database Schema
+### 6. Pinecone Setup
+```bash
+npm run pinecone:setup        # create the serverless index (defaults to gcp/us-central1)
+npm run pinecone:migrate      # optional legacy command if JSON embeddings still exist
+```
+
+The Pinecone index now stores all semantic vectors (previously JSON in PostgreSQL). Make sure the cloud/region you configure is supported by your Pinecone project.
+
+### 7. Database Schema
 ### Core Models
 - **State**: US states/territories
 - **Policy**: Uploaded policy documents
@@ -106,9 +119,9 @@ ollama serve  # Start Ollama server
 
 ### 1. Ingest Policies
 - Toggle uploads on by setting `ALLOW_UPLOAD="true"`, `ALLOW_INGEST="true"`, and `NEXT_PUBLIC_ENABLE_UPLOAD="true"` in `.env`, then restart `npm run dev`.
-- Make sure `ollama serve` is running before you upload.
+- Make sure `ollama serve` *and* the Pinecone index are reachable before you upload.
 - Open the Dashboard tab and use the "Upload Policy PDF" card to select a telehealth policy PDF.
-- After the success message, allow ~1 minute for background processing (embeddings + fact extraction) before refreshing the dashboard.
+- After the success message, allow ~1 minute for background processing (embedding to Pinecone + fact extraction) before refreshing the dashboard.
 
 ### 2. Search Policies
 - Navigate to "Search" tab
@@ -147,6 +160,8 @@ npm run build
 npm start
 ```
 
+> **Hint:** After migrating from PostgreSQL embeddings, run `node scripts/reembed-pinecone.js` once to regenerate vectors in Pinecone before starting production.
+
 ### Lint Code
 ```bash
 npm run lint
@@ -169,6 +184,15 @@ npm run lint
 - [ ] Multi-tenant support
 - [ ] Mobile responsive improvements
 - [ ] Real-time collaboration features
+
+### 🔄 Pinecone Maintenance Tips
+- `npm run pinecone:setup` — initialize or verify the Pinecone index.
+- `node scripts/reembed-pinecone.js` — regenerate embeddings for all policies (use after model changes or migrations).
+- `npm run pinecone:migrate` — legacy script to copy JSON embeddings if the old column still exists.
+- Check index stats:
+  ```bash
+  node -e "require('dotenv').config(); require('ts-node/register'); const { pineconeIndex } = require('./lib/pinecone'); (async () => console.log(await pineconeIndex.describeIndexStats()))();"
+  ```
 
 
 📝 License
