@@ -1,9 +1,4 @@
 # 🧭 TeleCompass Technical Demo Playbook
-
-> Purpose: Equip a full-stack engineer (with limited AI/ML background) to understand, run, and confidently demonstrate TeleCompass end-to-end.
-
----
-
 ## 1. Executive Summary
 TeleCompass is an AI-assisted policy intelligence platform. It ingests telehealth policy PDFs, converts them into structured knowledge, and exposes interactive tools (Search, Q&A, Comparison, Dashboard) so compliance teams can quickly navigate state-level regulations. The system now relies on **Pinecone** as its vector database, greatly improving semantic search and Retrieval-Augmented Generation (RAG) performance.
 
